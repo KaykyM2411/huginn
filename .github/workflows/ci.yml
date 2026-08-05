@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.0", "3.1", "3.2", "3.3"]
+        gemfile:
+          - gemfiles/rails_6.1.gemfile
+          - gemfiles/rails_7.0.gemfile
+          - gemfiles/rails_7.1.gemfile
+        exclude:
+          - ruby: "3.3"
+            gemfile: gemfiles/rails_6.1.gemfile
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: huginn
+          POSTGRES_DB: huginn_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: huginn
+      DATABASE_NAME: huginn_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+          bundle-gemfile: ${{ matrix.gemfile }}
+
+      - run: bundle exec rspec
