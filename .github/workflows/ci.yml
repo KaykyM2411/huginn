@@ -60,6 +60,7 @@ jobs:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: huginn
       DATABASE_NAME: huginn_test
+      BUNDLE_GEMFILE: ${{ matrix.gemfile }}
 
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +69,7 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
-          bundle-gemfile: ${{ matrix.gemfile }}
 
-      - run: bundle exec rspec
+      - run: |
+          bundle install --jobs 4 --retry 3
+          bundle exec rspec
