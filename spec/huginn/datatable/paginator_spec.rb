@@ -17,8 +17,9 @@ RSpec.describe Huginn::Datatable::Paginator do
     described_class.new(relation, params).call
   end
 
-  context "when Pagy::Offset is available (Pagy >= 9.6 / 43.x)" do
+context "when Pagy::Offset is available (Pagy >= 9.6 / 43.x)" do
     before do
+      stub_const("Pagy::Offset", Class.new) unless defined?(::Pagy::Offset)
       allow_any_instance_of(described_class).to receive(:offset_api?).and_return(true)
       expect(::Pagy::Offset).to receive(:new)
         .with(count: 9, page: 2, limit: 3)
