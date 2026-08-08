@@ -54,20 +54,22 @@ module Huginn
         end
       end
 
-      # Pagy >= 9.6 replaced the `Pagy#new` items/first API with the dedicated
-      # `Pagy::Offset` class that speaks `limit:`. Older releases (6..9.4) live
-      # under the legacy `Pagy.new(count:page:items:)` interface.
+      # Pagy >= 43 exposes the dedicated `Pagy::Offset` class that speaks
+      # `limit:`. Releases 6..9 carry the legacy `Pagy.new(count:page:items:)`
+      # interface instead.
       def offset_api?
         defined?(::Pagy::Offset)
       end
 
-      # Pagy 10.0 renamed the page-size keyword from `items:` to `limit:` while
-      # keeping `Pagy.new`. Probe the constructor instead of guessing by
-      # version number.
+      # Pagy 6..8 accept the page size through the `items:` constructor key and
+      # expose it through `#items`. Pagy 9 restructured the constructors, but
+      # the early 9.x releases keep `Pagy.new` keyed on `limit:`. Probe the
+      # live constructor instead of guessing by version number.
       def items_keyword?
-        ::Pagy.instance_method(:initialize).parameters.any? do |type, name|
-          type == :key && name == :items
-        end
+        sample = ::Pagy.new(count: 100, page: 1, items: 7)
+        sample.respond_to?(:items) && sample.items == 7
+      rescue StandardError
+        false
       end
 
       def limit_for(pagy)
