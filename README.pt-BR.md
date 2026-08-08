@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./logo.png" width="140" alt="Logo do Huginn">
+</p>
+
 <h1 align="center">Huginn</h1>
 
 <p align="center">
