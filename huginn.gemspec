@@ -3,7 +3,7 @@
 require_relative "lib/huginn/version"
 
 Gem::Specification.new do |spec|
-  spec.name          = "huginn"
+  spec.name          = "huginn_datatable"
   spec.version       = Huginn::VERSION
   spec.authors       = ["Kayky Marcelo"]
   spec.email         = ["kaykymarcelo2411@gmail.com"]
