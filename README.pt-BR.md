@@ -13,14 +13,14 @@
   <a href="./README.md">🇺🇸 English</a> · 🇧🇷 Português
 </p>
 
-O Huginn é uma camada de consulta leve para Rails que transforma uma requisição de datatable bruta em um **count enxuto, um subconjunto paginado e um único preload** — em vez de um JOIN enorme materializado em memória. Também traz um construtor de busca *fuzzy* para PostgreSQL (similaridade `pg_trgm` com `unaccent` e fallback `ILIKE`) tolerante a erros de digitação e acentuação.
+O Huginn é uma camada de consulta leve para Rails que transforma uma requisição de datatable bruta em um **count enxuto, um subconjunto paginado e um único preload** — em vez de um JOIN enorme materializado em memória. Também traz um construtor de busca *fuzzy* para PostgreSQL (similaridade `pg_trgm` via operador `%` com `unaccent` e fallback `ILIKE`) tolerante a erros de digitação e acentuação — e que pode usar um índice GIN quando presente.
 
 ## Destaques
 
 - **Execução em duas fases** — filtros/orders/ranges de associação se tornam subqueries resolvidas por reflexão, e o `preload` é feito **somente no subconjunto paginado**.
 - **Counts enxutos** — `COUNT(DISTINCT pk)` através de uma relation restrita, sem materialização de JOINs.
 - **Ordenação/filtro seguros contra SQL injection** — toda referência de coluna é resolvida via reflexão do Arel, nunca interpolada como string.
-- **Busca tolerante a acentos/typos** — similaridade `pg_trgm` OU `unaccent+ILIKE`, com cadeia de fallback configurável.
+- **Busca tolerante a acentos/typos** — similaridade `pg_trgm` (operador `%`) OU `unaccent+ILIKE`, com cadeia de fallback configurável; usa índice GIN `gin_trgm_ops` quando existente.
 - **Convenções do Rails** — funciona com `ActionController::Parameters`, Railtie inclui ambos os concerns automaticamente (desligável), zero boilerplate.
 
 ## Desenvolvimento
@@ -66,16 +66,23 @@ gem "huginn"
 ```ruby
 # config/initializers/huginn.rb
 Huginn.configure do |config|
-  # :pg_trgm  (recomendado) — similaridade trigram OU unaccent+ILIKE
+  # :pg_trgm  (recomendado) — similaridade trigram (%) OU unaccent+ILIKE
   # :unaccent               — somente unaccent + ILIKE
   # :simple                 — LIKE simples
   config.search_strategy = :pg_trgm
 
-  config.fuzzy_threshold = 0.3   # cutoff de similarity() usado por :pg_trgm
+  # Função unaccent usada em torno de termos/colunas. O default é o UNACCENT()
+  # built-in do PG. Aponte para o wrapper IMMUTABLE criado por
+  # `rails g huginn:trigram_indexes` ("public.f_unaccent") para que índices
+  # GIN trigram possam ser usados de fato.
+  config.unaccent_function = "unaccent"
+
   config.pagy_items = 10         # tamanho de página padrão
   config.pagy_max_items = 500    # teto máximo de per_page
 end
 ```
+
+> **Limiar:** sob `:pg_trgm`, o corte de similaridade é o GUC do PostgreSQL `pg_trgm.similarity_threshold` (default `0.3`), **não** uma configuração da gem. Ajuste com `SET pg_trgm.similarity_threshold = 0.4` / `SELECT set_limit(0.4)` no banco.
 
 ## Railtie (include automático)
 
@@ -184,6 +191,46 @@ Person.search("kayky", distinct: false)            # desativa o DISTINCT implíc
 
 `Huginn::Datatable` reutiliza `Huginn::Searchable.search` automaticamente quando o modelo responde a `search`.
 
+## Índices trigram (performance)
+
+Sob `:pg_trgm`, cada coluna pesquisável gera um predicado indexável:
+
+```sql
+(UNACCENT(col) % UNACCENT('termo')) OR (UNACCENT(col) ILIKE UNACCENT('%termo%'))
+```
+
+Ambos os ramos são suportados por um **índice GIN trigram**, então o planner pode executar um `BitmapOr` sobre ele. Como o `unaccent()` built-in do PG é `STABLE` (não `IMMUTABLE`) desde o PostgreSQL 13+, ele não pode ser usado diretamente numa expressão de índice — você precisa de um wrapper `IMMUTABLE` + índice de expressão:
+
+```sql
+CREATE OR REPLACE FUNCTION public.f_unaccent(text)
+RETURNS text AS $$
+  SELECT public.unaccent('public.unaccent', $1);
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE;
+
+CREATE INDEX index_people_name_trgm ON people USING gin (public.f_unaccent(name) gin_trgm_ops);
+```
+
+E aponte a gem para o wrapper:
+
+```ruby
+Huginn.configure { |c| c.unaccent_function = "public.f_unaccent" }
+```
+
+Ou gere a migration para todos os modelos Searchable (wrapper + índices inclusos):
+
+```sh
+rails g huginn:trigram_indexes                     # todos os modelos Searchable
+rails g huginn:trigram_indexes Person Product      # modelos específicos
+```
+
+O índice é **opcional** — sem ele a busca ainda retorna resultados corretos (via sequential scan), e os mesmos índices também aceleram as estratégias `:unaccent` (ILIKE) e `:simple` (LIKE).
+
+Observações:
+
+- Requer as extensões `pg_trgm` e `unaccent`.
+- Só ajuda em termos de busca de **3 caracteres ou mais** — trigramas precisam disso para casar. Termos menores sempre fazem scan.
+- Para conferir o uso, rode `Person.search("termo").explain` com o wrapper configurado e um índice `gin_trgm_ops` presente.
+
 ## Eficiência da query
 
 ```
@@ -199,7 +246,7 @@ Para um datatable de `Plano` com `includes:` profundos, isso são exatamente **2
 
 ```
 lib/huginn.rb                       entry, Huginn.configure, Huginn.instrument
-lib/huginn/configuration.rb         search_strategy, fuzzy_threshold, pagy_*
+lib/huginn/configuration.rb         search_strategy, unaccent_function, pagy_*
 lib/huginn/railtie.rb               auto-inclui os concerns no ActiveRecord
 lib/huginn/datatable.rb             Huginn::Datatable (agregador)
 lib/huginn/datatable/datatable.rb   o Concern do datatable
@@ -212,6 +259,7 @@ lib/huginn/searchable.rb            Huginn::Searchable (agregador)
 lib/huginn/searchable/searchable.rb o Concern do search + DSL
 lib/huginn/searchable/query.rb      construtor de busca tolerante (joins + OR)
 lib/huginn/searchable/fuzzy.rb      predicados pg_trgm / unaccent / simple
+lib/generators/...                  gerador `huginn:trigram_indexes` (migrations de índices GIN)
 ```
 
 ## Instrumentação
