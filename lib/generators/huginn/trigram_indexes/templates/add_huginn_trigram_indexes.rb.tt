@@ -1,0 +1,26 @@
+class AddHuginnTrigramIndexes < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def up
+    enable_extension "unaccent" unless connection.extension_enabled?("unaccent")
+
+    # The pg builtin unaccent() is STABLE (not IMMUTABLE) since PG 13+, so it
+    # cannot be used in an index expression. Wrap it in an IMMUTABLE function
+    # that always pins the default dictionary.
+    execute <<~SQL
+      CREATE OR REPLACE FUNCTION public.f_unaccent(text)
+      RETURNS text AS $$
+        SELECT public.unaccent('public.unaccent', $1);
+      $$
+      LANGUAGE sql IMMUTABLE PARALLEL SAFE;
+    SQL
+<% @entries.each do |entry| %>
+    add_index :<%= entry[:table] %>, "public.f_unaccent(<%= entry[:column] %>) gin_trgm_ops", using: :gin, name: "index_<%= entry[:table] %>_<%= entry[:column] %>_trgm"
+<% end %>
+  end
+
+  def down
+<% @entries.each do |entry| %>
+    remove_index :<%= entry[:table] %>, name: "index_<%= entry[:table] %>_<%= entry[:column] %>_trgm"
+<% end %>
+    execute "DROP FUNCTION IF EXISTS public.f_unaccent(text)"
+  end
+end
