@@ -70,7 +70,7 @@ module Huginn
         case strategy
         when :pg_trgm
           if pg_trgm_available?
-            Fuzzy::Trigram.new(attr, @value, Huginn.configuration.fuzzy_threshold).predicate
+            Fuzzy::Trigram.new(attr, @value).predicate
           else
             fallback_fuzzy(attr)
           end
