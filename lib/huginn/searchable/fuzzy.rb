@@ -9,6 +9,11 @@ module Huginn
     #   :pg_trgm   -> trigram similarity (%) OR unaccent+ILIKE (best for typos).
     #                 Both branches are supported by a gin_trgm_ops GIN index
     #                 on UNACCENT(col); the index is used only when it exists.
+    #   :full_text -> PostgreSQL full text search: to_tsvector(col) @@
+    #                 plainto_tsquery(term), so morphological variants match;
+    #                 needs the IMMUTABLE fts_function wrapper and a GIN
+    #                 tsvector index. Effective with a single strategy or
+    #                 combined with :pg_trgm (OR).
     #   :unaccent  -> unaccent + ILIKE (case/accents insensitive)
     #   :simple    -> plain LIKE
     module Fuzzy
@@ -88,6 +93,45 @@ module Huginn
 
         def fallback
           Unaccent.new(@column, @value).predicate
+        end
+      end
+
+      # PostgreSQL full text search over lexemes:
+      #
+      #   public.f_tsvector(col) @@ plainto_tsquery('portuguese'::regconfig, term)
+      #
+      # The column side runs through the configured fts_function (an IMMUTABLE
+      # wrapper around to_tsvector that pins the dictionary, created by
+      # `rails g huginn:fts_indexes`) so a GIN tsvector index is usable. The
+      # query side uses plainto_tsquery, which ANDs the lexemes of the term and
+      # applies stemming — tolerant to morphological variants, blind to typos.
+      class FullText
+        def initialize(column, value, dictionary: nil)
+          @column = column
+          @value = value.to_s
+          @dictionary = dictionary || Huginn.configuration.fts_dictionary
+        end
+
+        def predicate
+          Arel::Nodes::InfixOperation.new("@@", tsvector, query)
+        end
+
+        private
+
+        def tsvector
+          Arel::Nodes::NamedFunction.new(Huginn.configuration.fts_function, [@column])
+        end
+
+        def query
+          Arel::Nodes::NamedFunction.new("plainto_tsquery", [regconfig, quoted_value])
+        end
+
+        def regconfig
+          Arel.sql("'#{@dictionary}'::regconfig")
+        end
+
+        def quoted_value
+          Arel::Nodes.build_quoted(@value, @column)
         end
       end
     end

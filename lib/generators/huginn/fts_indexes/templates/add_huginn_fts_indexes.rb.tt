@@ -1,0 +1,24 @@
+class AddHuginnFtsIndexes < ActiveRecord::Migration[<%= ActiveRecord::Migration.current_version %>]
+  def up
+    # to_tsvector(regconfig, text) is STABLE (not IMMUTABLE), so it cannot be
+    # used in an index expression as-is. Wrap it in an IMMUTABLE function that
+    # always pins the configured dictionary.
+    execute <<~SQL
+      CREATE OR REPLACE FUNCTION public.f_tsvector(text)
+      RETURNS tsvector AS $$
+        SELECT to_tsvector('<%= @dictionary %>', $1);
+      $$
+      LANGUAGE sql IMMUTABLE PARALLEL SAFE;
+    SQL
+<% @entries.each do |entry| %>
+    add_index :<%= entry[:table] %>, "public.f_tsvector(<%= entry[:column] %>)", using: :gin, name: "index_<%= entry[:table] %>_<%= entry[:column] %>_fts"
+<% end %>
+  end
+
+  def down
+<% @entries.each do |entry| %>
+    remove_index :<%= entry[:table] %>, name: "index_<%= entry[:table] %>_<%= entry[:column] %>_fts"
+<% end %>
+    execute "DROP FUNCTION IF EXISTS public.f_tsvector(text)"
+  end
+end

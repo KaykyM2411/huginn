@@ -77,6 +77,12 @@ module Huginn
         nil
       end
 
+      # The Arel predicates folded in by the association scopes of every step.
+      # Public so subquery builders can replicate ActiveRecord's scoped joins.
+      def scope_constraints
+        scope_predicates
+      end
+
       # Reverse engineers a join spec usable by `ActiveRecord::Relation#joins`
       # for filter subqueries: `.joins(:people: { company: ... })`.
       def self.join_spec_for(names)

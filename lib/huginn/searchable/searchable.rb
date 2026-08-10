@@ -36,11 +36,15 @@ module Huginn
       end
 
       def searchable_columns_config_resolved
-        config = searchable_columns_config || {}
-        {
-          columns: config[:columns].presence || default_searchable_columns,
-          associations: config[:associations] || {}
-        }
+        config = searchable_columns_config
+        if config.nil?
+          { columns: default_searchable_columns, associations: {} }
+        else
+          {
+            columns: Array(config[:columns]),
+            associations: config[:associations] || {}
+          }
+        end
       end
 
       private
