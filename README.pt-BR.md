@@ -13,14 +13,14 @@
   <a href="./README.md">🇺🇸 English</a> · 🇧🇷 Português
 </p>
 
-O Huginn é uma camada de consulta leve para Rails que transforma uma requisição de datatable bruta em um **count enxuto, um subconjunto paginado e um único preload** — em vez de um JOIN enorme materializado em memória. Também traz um construtor de busca *fuzzy* para PostgreSQL (similaridade `pg_trgm` via operador `%` com `unaccent` e fallback `ILIKE`) tolerante a erros de digitação e acentuação — e que pode usar um índice GIN quando presente.
+O Huginn é uma camada de consulta leve para Rails que transforma uma requisição de datatable bruta em um **count enxuto, um subconjunto paginado e um único preload** — em vez de um JOIN enorme materializado em memória. Também traz um construtor de busca tolerante a erros para PostgreSQL (similaridade `pg_trgm` via operador `%` com `unaccent` e fallback `ILIKE`, além da estratégia `:full_text` sobre lexemas) que tolera erros de digitação e acentuação — e que pode usar índices GIN quando presentes.
 
 ## Destaques
 
 - **Execução em duas fases** — filtros/orders/ranges de associação se tornam subqueries resolvidas por reflexão, e o `preload` é feito **somente no subconjunto paginado**.
 - **Counts enxutos** — a relation base nunca faz join (`COUNT(*)` sobre uma relation restrita); as buscas de associação acontecem via subqueries no pk.
 - **Ordenação/filtro seguros contra SQL injection** — toda referência de coluna é resolvida via reflexão do Arel, nunca interpolada como string.
-- **Busca tolerante a acentos/typos** — similaridade `pg_trgm` (operador `%`) OU `unaccent+ILIKE`, com cadeia de fallback configurável; usa índice GIN `gin_trgm_ops` quando existente.
+- **Busca tolerante** — similaridade `pg_trgm` (operador `%`) OU `unaccent+ILIKE` (tolerante a typos/acentos) e `:full_text` sobre lexemas (ciente de morfologia); as estratégias são selecionáveis via `search_strategy` ou combinadas com OR, respaldadas por índices GIN quando presentes.
 - **Convenções do Rails** — funciona com `ActionController::Parameters`, Railtie inclui ambos os concerns automaticamente (desligável), zero boilerplate.
 
 ## Desenvolvimento
@@ -58,7 +58,7 @@ Os `gemfiles/*.gemfile` são gerados pelo Appraisal (commitados); os arquivos `.
 ## Instalação
 
 ```ruby
-gem "huginn"
+gem "huginn_datatable", require: "huginn"
 ```
 
 ## Configuração
@@ -120,7 +120,7 @@ result = Plano.datatable(
   includes: [{ operadora: { pessoa: [:endereco, :contatos] } }] # preload somente na página
 )
 
-result[:total_count] # Integer (count enxuto COUNT DISTINCT pk)
+result[:total_count] # Integer (count enxuto COUNT(*))
 result[:data]        # ActiveRecord::Relation (paginada + preloaded)
 ```
 
@@ -202,6 +202,14 @@ Person.search("globex")                            # encontra company.name via s
 Person.search("kayky", distinct: false)            # desativa o DISTINCT implícito
 ```
 
+`searchable_columns columns: []` é respeitado: um array vazio significa "pesquisar somente as associações declaradas" — não cai mais para as colunas `:string`/`:text` do próprio modelo:
+
+```ruby
+class Person < ApplicationRecord
+  searchable_columns columns: [], company: [:name, :cnpj]  # só company.name/cnpj são pesquisados
+end
+```
+
 `Huginn::Datatable` reutiliza `Huginn::Searchable.search` automaticamente quando o modelo responde a `search`.
 
 ## Índices trigram (performance)
@@ -244,6 +252,51 @@ Observações:
 - Só ajuda em termos de busca de **3 caracteres ou mais** — trigramas precisam disso para casar. Termos menores sempre fazem scan.
 - Para conferir o uso, rode `Person.search("termo").explain` com o wrapper configurado e um índice `gin_trgm_ops` presente.
 
+## Índices full-text (performance)
+
+Sob `:full_text`, cada coluna pesquisável gera um predicado por lexema respaldado por um índice GIN tsvector:
+
+```sql
+public.f_tsvector(col) @@ plainto_tsquery('portuguese'::regconfig, 'termo')
+```
+
+Como o `to_tsvector()` é `STABLE` (não `IMMUTABLE`), ele não pode ser indexado diretamente — você precisa de um wrapper `IMMUTABLE` que fixe o dicionário além do índice de expressão:
+
+```sql
+CREATE OR REPLACE FUNCTION public.f_tsvector(text)
+RETURNS tsvector AS $$
+  SELECT to_tsvector('portuguese'::regconfig, $1);
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE;
+
+CREATE INDEX index_people_name_fts ON people USING gin (public.f_tsvector(name));
+```
+
+E aponte a gem para o wrapper e o dicionário:
+
+```ruby
+Huginn.configure do |c|
+  c.search_strategy = :full_text
+  c.fts_dictionary  = "portuguese"
+  c.fts_function    = "public.f_tsvector"
+end
+```
+
+Ou gere a migration para todos os modelos Searchable (wrapper + índices GIN inclusos), escolhendo um dicionário com `--dictionary`:
+
+```sh
+rails g huginn:fts_indexes                               # todos os modelos Searchable
+rails g huginn:fts_indexes Person Product                # modelos específicos
+rails g huginn:fts_indexes --dictionary english          # fixar outro dicionário
+```
+
+O índice é **opcional** — sem o wrapper/índice a busca degrada graciosamente para o fallback unaccent+ILIKE e permanece correta (via sequential scan).
+
+Observações:
+
+- Requer o suporte a full text search embutido no PostgreSQL (sem extensão extra).
+- `:full_text` não tem tolerância a typos — combine com `:pg_trgm` (`search_strategy: [:pg_trgm, :full_text]`) e gere **os dois** conjuntos de índices (`huginn:trigram_indexes` + `huginn:fts_indexes`).
+- Para conferir o uso, rode `Person.search("termo").explain` com o wrapper configurado e um índice GIN tsvector presente.
+
 ## Eficiência da query
 
 ```
@@ -259,7 +312,7 @@ Para um datatable de `Plano` com `includes:` profundos, isso são exatamente **2
 
 ```
 lib/huginn.rb                       entry, Huginn.configure, Huginn.instrument
-lib/huginn/configuration.rb         search_strategy, unaccent_function, pagy_*
+lib/huginn/configuration.rb         search_strategy, unaccent_function, fts_*, pagy_*
 lib/huginn/railtie.rb               auto-inclui os concerns no ActiveRecord
 lib/huginn/datatable.rb             Huginn::Datatable (agregador)
 lib/huginn/datatable/datatable.rb   o Concern do datatable
@@ -271,8 +324,8 @@ lib/huginn/datatable/paginator.rb  count enxuto, paginação, preload isolado
 lib/huginn/searchable.rb            Huginn::Searchable (agregador)
 lib/huginn/searchable/searchable.rb o Concern do search + DSL
 lib/huginn/searchable/query.rb      construtor de busca tolerante (subqueries + OR)
-lib/huginn/searchable/fuzzy.rb      predicados pg_trgm / unaccent / simple
-lib/generators/...                  gerador `huginn:trigram_indexes` (migrations de índices GIN)
+lib/huginn/searchable/fuzzy.rb      predicados pg_trgm / full_text / unaccent / simple
+lib/generators/...                  geradores `huginn:trigram_indexes` + `huginn:fts_indexes` (migrations de índices GIN)
 ```
 
 ## Instrumentação
