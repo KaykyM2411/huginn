@@ -2,7 +2,14 @@
 
 ### Unreleased
 
-#### 0.2.1
+#### 0.3.0
+
+- **New `:full_text` search strategy** — PostgreSQL full text search over lexemes (`public.f_tsvector(col) @@ plainto_tsquery('portuguese'::regconfig, 'term')`), so morphological variants match (e.g. "compras" finds "compra"). Blind to typos, unlike `:pg_trgm`. Uses a GIN tsvector index when the `fts_function` wrapper (IMMUTABLE, dictionary pinned) exists; degrades gracefully to unaccent+ILIKE otherwise.
+- `search_strategy:` now accepts **a single symbol or an Array of them**; multiple strategies are combined with **OR** (a row matches if any strategy matches), e.g. `[ :pg_trgm, :full_text ]` to get typo tolerance plus stemming.
+- New `fts_dictionary:` (default `"portuguese"`) and `fts_function:` (default `"public.f_tsvector"`) configurations, mirroring `unaccent_function`.
+- New generator **`rails g huginn:fts_indexes [Model...]`** scaffolds a migration that creates the IMMUTABLE `public.f_tsvector` wrapper (with `--dictionary`) and GIN tsvector indexes on every `:string`/`:text` column of the Searchable models, including association-scoped ones.
+- `searchable_columns columns: []` is now honored — an empty array means "search only the declared associations", no longer falling back to the model's own string/text columns.
+- Specs for the `Configuration` normalization surface (defaults + `search_strategy` symbol/array shapes).
 
 - Association-scoped `search` now matches through **primary-key semi-join subqueries** (`pk IN (SELECT DISTINCT pk FROM <base> JOIN <chain> WHERE <fuzzy>)`) instead of `left_joins` — one subquery per distinct association chain, combined with OR. The base relation never joins, so the count is a plain `COUNT(*)`.
 

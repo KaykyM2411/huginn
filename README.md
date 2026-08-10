@@ -66,9 +66,13 @@ gem "huginn"
 ```ruby
 # config/initializers/huginn.rb
 Huginn.configure do |config|
-  # :pg_trgm  (recommended) — trigram similarity (%) OR unaccent+ILIKE
+  # :pg_trgm   (recommended) — trigram similarity (%) OR unaccent+ILIKE
+  # :full_text — PostgreSQL full text search over lexemes
+  #              (to_tsvector @@ plainto_tsquery)
   # :unaccent               — unaccent + ILIKE only
   # :simple                 — plain LIKE
+  # Pass an Array to combine strategies with OR, e.g.
+  # config.search_strategy = [:pg_trgm, :full_text]
   config.search_strategy = :pg_trgm
 
   # Unaccent function used around search terms/columns. Defaults to the pg
@@ -77,12 +81,21 @@ Huginn.configure do |config|
   # indexes can actually be used.
   config.unaccent_function = "unaccent"
 
+  # Full text search (strategy :full_text). The dictionary and the IMMUTABLE
+  # tsvector wrapper (`rails g huginn:fts_indexes`) pinned to that dictionary;
+  # they only apply when the wrapper exists, otherwise search degrades to the
+  # unaccent fallback.
+  # config.fts_dictionary = "portuguese"
+  # config.fts_function   = "public.f_tsvector"
+
   config.pagy_items = 10         # default page size
   config.pagy_max_items = 500    # hard cap for per_page
 end
 ```
 
 > **Threshold:** under `:pg_trgm` the similarity cutoff is the PostgreSQL GUC `pg_trgm.similarity_threshold` (default `0.3`), **not** a gem-level setting. Tune it with `SET pg_trgm.similarity_threshold = 0.4` / `SELECT set_limit(0.4)` on the database.
+
+> **Strategy tradeoffs:** `:pg_trgm` tolerates typos and substrings but has no notion of morphology. `:full_text` matches morphological variants (e.g. "correndo"/"correr" → same stem) but is blind to typos, and shines on longer text columns — for name/keyword lookups it mostly overlaps with trigram. Combining both (`[:pg_trgm, :full_text]`) unions the two result sets and requires both index sets (`rails g huginn:trigram_indexes` + `rails g huginn:fts_indexes`).
 
 ## Railtie (automatic include)
 

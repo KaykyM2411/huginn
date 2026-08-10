@@ -66,9 +66,13 @@ gem "huginn"
 ```ruby
 # config/initializers/huginn.rb
 Huginn.configure do |config|
-  # :pg_trgm  (recomendado) — similaridade trigram (%) OU unaccent+ILIKE
+  # :pg_trgm   (recomendado) — similaridade trigram (%) OU unaccent+ILIKE
+  # :full_text              — full text search do PostgreSQL sobre lexemas
+  #                           (to_tsvector @@ plainto_tsquery)
   # :unaccent               — somente unaccent + ILIKE
   # :simple                 — LIKE simples
+  # Para combinar estratégias com OR, passe um Array:
+  # config.search_strategy = [:pg_trgm, :full_text]
   config.search_strategy = :pg_trgm
 
   # Função unaccent usada em torno de termos/colunas. O default é o UNACCENT()
@@ -77,12 +81,21 @@ Huginn.configure do |config|
   # GIN trigram possam ser usados de fato.
   config.unaccent_function = "unaccent"
 
+  # Full text search (estratégia :full_text). O dicionário e o wrapper
+  # tsvector IMMUTABLE (`rails g huginn:fts_indexes`) fixado nesse dicionário;
+  # só têm efeito quando o wrapper existe — caso contrário a busca degrada
+  # para o fallback unaccent.
+  # config.fts_dictionary = "portuguese"
+  # config.fts_function   = "public.f_tsvector"
+
   config.pagy_items = 10         # tamanho de página padrão
   config.pagy_max_items = 500    # teto máximo de per_page
 end
 ```
 
 > **Limiar:** sob `:pg_trgm`, o corte de similaridade é o GUC do PostgreSQL `pg_trgm.similarity_threshold` (default `0.3`), **não** uma configuração da gem. Ajuste com `SET pg_trgm.similarity_threshold = 0.4` / `SELECT set_limit(0.4)` no banco.
+
+> **Tradeoffs de estratégia:** `:pg_trgm` tolera typos e substrings, mas não tem noção de morfologia. `:full_text` captura variações morfológicas (ex. "correndo"/"correr" → mesmo lexema), mas é cego a typos, e brilha em colunas de texto mais longo — para busca por nome/palavra-chave ele em grande parte se sobrepõe ao trigram. Combinar os dois (`[:pg_trgm, :full_text]`) une os dois conjuntos de resultado e exige os dois conjuntos de índices (`rails g huginn:trigram_indexes` + `rails g huginn:fts_indexes`).
 
 ## Railtie (include automático)
 
