@@ -17,8 +17,8 @@ module Huginn
       #
       # When nothing is declared, every :string/:text column of the model is
       # searched automatically. Columns may be association-scoped ("person.name")
-      # or declared via keyword arguments; scoped columns are reached through a
-      # left_join.
+      # or declared via keyword arguments; scoped columns are resolved through
+      # semi-join subqueries on the primary key (no joins on the base relation).
       def searchable_columns(*columns, **associations)
         self.searchable_columns_config = {
           columns: columns.flatten.compact.map(&:to_s),
