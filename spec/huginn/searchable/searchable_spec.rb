@@ -43,12 +43,42 @@ RSpec.describe "(integration) Huginn::Searchable" do
         Person.class_eval { self.searchable_columns_config = nil }
       end
 
-      it "matches a company column through a left_join" do
+      it "matches a company column through a pk subquery" do
         expect(Person.search("globex").map(&:name)).to eq(["Avenida Ação"])
       end
 
       it "does not duplicate rows when associations match many" do
         expect(Person.search("acme").map(&:name).size).to eq(2)
+      end
+
+      it "runs association matches as a semi-join subquery, never a join on the base relation" do
+        SqlSpy.start
+        Person.search("globex").to_a
+        SqlSpy.stop
+
+        query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
+        expect(query).to include('IN (SELECT DISTINCT "people"."id"')
+        expect(query).to include('INNER JOIN "companies"')
+        expect(query).not_to include("LEFT JOIN")
+        expect(query).to match(/FROM "people" WHERE/m)
+      end
+
+      it "issues one pk subquery per distinct association chain, combined with OR" do
+        @acme.products.create!(title: "Vonnegut", sku: "V-1")
+        Person.class_eval { searchable_columns :name, "company.name", "company.products.title" }
+
+        SqlSpy.start
+        result = Person.search("vonnegut").to_a
+        SqlSpy.stop
+
+        query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
+        expect(result.map(&:name)).to contain_exactly("Ana Souza", "Kayky Marcelo")
+        expect(query.scan(/IN \(SELECT DISTINCT "people"/).size).to eq(2)
+        expect(query).to include('INNER JOIN "products"')
+        expect(query).to include('INNER JOIN "companies"')
+        expect(query).not_to include("LEFT JOIN")
+      ensure
+        Person.class_eval { self.searchable_columns_config = nil }
       end
     end
   end
