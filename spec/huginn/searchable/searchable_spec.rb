@@ -32,6 +32,14 @@ RSpec.describe "(integration) Huginn::Searchable" do
       ensure
         Person.class_eval { self.searchable_columns_config = nil }
       end
+
+      it "does not fall back to own string columns when only associations are declared" do
+        Person.class_eval { searchable_columns company: [:name] }
+
+        expect(Person.search("kayky")).to be_empty
+      ensure
+        Person.class_eval { self.searchable_columns_config = nil }
+      end
     end
 
     context "association-scoped search" do
@@ -57,10 +65,10 @@ RSpec.describe "(integration) Huginn::Searchable" do
         SqlSpy.stop
 
         query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
-        expect(query).to include('IN (SELECT DISTINCT "people"."id"')
-        expect(query).to include('INNER JOIN "companies"')
+        expect(query).to include('"people"."company_id" IN (SELECT DISTINCT "companies"."id"')
+        expect(query).to match(/FROM "companies" WHERE/m)
+        expect(query).not_to include('INNER JOIN "companies"')
         expect(query).not_to include("LEFT JOIN")
-        expect(query).to match(/FROM "people" WHERE/m)
       end
 
       it "issues one pk subquery per distinct association chain, combined with OR" do
@@ -73,12 +81,94 @@ RSpec.describe "(integration) Huginn::Searchable" do
 
         query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
         expect(result.map(&:name)).to contain_exactly("Ana Souza", "Kayky Marcelo")
-        expect(query.scan(/IN \(SELECT DISTINCT "people"/).size).to eq(2)
+        expect(query.scan(/"people"\."company_id" IN \(SELECT DISTINCT/).size).to eq(2)
         expect(query).to include('INNER JOIN "products"')
-        expect(query).to include('INNER JOIN "companies"')
+        expect(query).not_to include('INNER JOIN "companies"')
         expect(query).not_to include("LEFT JOIN")
       ensure
         Person.class_eval { self.searchable_columns_config = nil }
+      end
+    end
+
+    context "association-scoped search on a has_many anchor" do
+      before do
+        Company.class_eval { searchable_columns :name, people: [:name] }
+      end
+
+      after do
+        Company.class_eval { self.searchable_columns_config = nil }
+      end
+
+      it "matches a child column through an FK-anchored reverse subquery" do
+        expect(Company.search("ana").map(&:name)).to eq(["Acme Corp"])
+      end
+
+      it "anchors the reverse subquery on the child FK, without re-scanning the base" do
+        SqlSpy.start
+        Company.search("avan").to_a
+        SqlSpy.stop
+
+        query = SqlSpy.queries.find { |sql| sql.include?('"companies"') && sql.include?("WHERE") }
+        expect(query).to include('"companies"."id" IN (SELECT DISTINCT "people"."company_id"')
+        expect(query).to match(/FROM "people" WHERE/m)
+        expect(query).not_to include('INNER JOIN "people"')
+        expect(query).not_to include("LEFT JOIN")
+      ensure
+        Company.class_eval { self.searchable_columns_config = nil }
+      end
+    end
+
+    context "with :full_text strategy" do
+      before do
+        Person.class_eval { searchable_columns :name, company: [:name] }
+      end
+
+      after do
+        Person.class_eval { self.searchable_columns_config = nil }
+        Huginn.configuration.search_strategy = :pg_trgm
+      end
+
+      it "matches association columns through tsvector lexemes" do
+        Huginn.configuration.search_strategy = :full_text
+        expect(Person.search("globex").map(&:name)).to eq(["Avenida Ação"])
+      end
+
+      it "builds the FTS predicate inside the association subquery" do
+        Huginn.configuration.search_strategy = :full_text
+
+        SqlSpy.start
+        Person.search("acme").to_a
+        SqlSpy.stop
+
+        query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
+        expect(query).to include('"people"."company_id" IN (SELECT DISTINCT "companies"."id"')
+        expect(query).to include(
+          'public.f_tsvector("companies"."name") @@ plainto_tsquery(\'portuguese\'::regconfig, \'acme\')'
+        )
+      end
+    end
+
+    context "combined :pg_trgm + :full_text strategies" do
+      before do
+        Person.class_eval { searchable_columns :name, company: [:name] }
+        Huginn.configuration.search_strategy = [ :pg_trgm, :full_text ]
+      end
+
+      after do
+        Person.class_eval { self.searchable_columns_config = nil }
+        Huginn.configuration.search_strategy = :pg_trgm
+      end
+
+      it "combines both predicates with OR" do
+        SqlSpy.start
+        expectation = Person.search("globex").map(&:name)
+        SqlSpy.stop
+
+        query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
+        expect(expectation).to eq(["Avenida Ação"])
+        expect(query).to include('%')
+        expect(query).to include('@@ plainto_tsquery')
+        expect(query).not_to include("LEFT JOIN")
       end
     end
   end

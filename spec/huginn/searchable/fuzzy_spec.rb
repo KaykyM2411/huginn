@@ -39,4 +39,19 @@ RSpec.describe Huginn::Searchable::Fuzzy do
       expect(sql).to include('LIKE \'%100\\%%\'')
     end
   end
+
+  describe Huginn::Searchable::Fuzzy::FullText do
+    subject { described_class.new(column, "café").predicate.to_sql }
+
+    it "matches lexemes through the IMMUTABLE wrapper and plainto_tsquery" do
+      expect(subject).to include(
+        'public.f_tsvector("people"."name") @@ plainto_tsquery(\'portuguese\'::regconfig, \'café\')'
+      )
+    end
+
+    it "honors a custom dictionary" do
+      sql = described_class.new(column, "house", dictionary: "english").predicate.to_sql
+      expect(sql).to include("plainto_tsquery('english'::regconfig, 'house')")
+    end
+  end
 end

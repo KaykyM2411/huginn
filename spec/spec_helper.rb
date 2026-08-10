@@ -52,6 +52,15 @@ RSpec.configure do |config|
       # tables already exist; continue
     end
 
+    # Backing for the :full_text strategy specs. CREATE OR REPLACE keeps this
+    # idempotent with the trigram integration spec.
+    ActiveRecord::Base.connection.execute(<<~SQL)
+      CREATE OR REPLACE FUNCTION public.f_tsvector(text)
+      RETURNS tsvector AS $$
+        SELECT to_tsvector('portuguese', $1);
+      $$ LANGUAGE sql IMMUTABLE PARALLEL SAFE;
+    SQL
+
     # Removes data left behind by previous raw runs so per-example fixtures
     # (seeded inside the wrapping transaction) are not inflated.
     ActiveRecord::Base.connection.tables.each do |table|
