@@ -10,10 +10,9 @@ module Huginn
     #   2. count lean, paginate with Pagy, then preload associations only
     #      on the small paginated subset.
     #
-    # The count runs against a stripped relation (no select/includes/order/
-    # offset/limit) selecting only the primary key with DISTINCT, so that
-    # PostgreSQL answers it through the PK index as a subquery instead of a
-    # massive COUNT(DISTINCT ...) over the joins.
+    # The base relation never carries joins (association filters, ranges,
+    # orders and the search are all resolved through primary-key subqueries),
+    # so the count stays a plain COUNT(*) over the stripped relation.
     class Paginator
       attr_reader :relation, :params, :includes
 
@@ -77,10 +76,7 @@ module Huginn
       end
 
       def total_count
-        stripped = relation.except(:select, :includes, :order, :offset, :limit)
-        return stripped.count unless stripped.left_outer_joins_values.any? || stripped.joins_values.any?
-
-        stripped.select(stripped.arel_table[stripped.primary_key]).distinct.count
+        relation.except(:select, :includes, :order, :offset, :limit).count
       end
 
       def config
