@@ -2,6 +2,10 @@
 
 ### Unreleased
 
+#### 0.2.1
+
+- Association-scoped `search` now matches through **primary-key semi-join subqueries** (`pk IN (SELECT DISTINCT pk FROM <base> JOIN <chain> WHERE <fuzzy>)`) instead of `left_joins` — one subquery per distinct association chain, combined with OR. The base relation never joins, so the count is a plain `COUNT(*)`.
+
 #### 0.2.0
 
 - **Breaking:** `:pg_trgm` search now uses the PostgreSQL `%` operator (`UNACCENT(col) % UNACCENT('term')`), driven by the **indexable** operator instead of a bare `similarity()` comparison. A `gin_trgm_ops` GIN index on `UNACCENT(col)` is used when present (BitmapOr over the same index with the ILIKE branch); without it, results stay correct via sequential scan.
