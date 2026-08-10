@@ -11,6 +11,8 @@
 - `searchable_columns columns: []` is now honored — an empty array means "search only the declared associations", no longer falling back to the model's own string/text columns.
 - Specs for the `Configuration` normalization surface (defaults + `search_strategy` symbol/array shapes).
 
+#### 0.2.1
+
 - Association-scoped `search` now matches through **primary-key semi-join subqueries** (`pk IN (SELECT DISTINCT pk FROM <base> JOIN <chain> WHERE <fuzzy>)`) instead of `left_joins` — one subquery per distinct association chain, combined with OR. The base relation never joins, so the count is a plain `COUNT(*)`.
 
 #### 0.2.0
