@@ -18,7 +18,7 @@ O Huginn é uma camada de consulta leve para Rails que transforma uma requisiç�
 ## Destaques
 
 - **Execução em duas fases** — filtros/orders/ranges de associação se tornam subqueries resolvidas por reflexão, e o `preload` é feito **somente no subconjunto paginado**.
-- **Counts enxutos** — `COUNT(DISTINCT pk)` através de uma relation restrita, sem materialização de JOINs.
+- **Counts enxutos** — a relation base nunca faz join (`COUNT(*)` sobre uma relation restrita); as buscas de associação acontecem via subqueries no pk.
 - **Ordenação/filtro seguros contra SQL injection** — toda referência de coluna é resolvida via reflexão do Arel, nunca interpolada como string.
 - **Busca tolerante a acentos/typos** — similaridade `pg_trgm` (operador `%`) OU `unaccent+ILIKE`, com cadeia de fallback configurável; usa índice GIN `gin_trgm_ops` quando existente.
 - **Convenções do Rails** — funciona com `ActionController::Parameters`, Railtie inclui ambos os concerns automaticamente (desligável), zero boilerplate.
@@ -129,7 +129,7 @@ Qualquer referência `column` **ou** `associacao.column` é validada e mapeada p
 Plano.datatable({ orders: [{ "operadora.pessoa.nome" => "asc" }] }, allowed_paths: [{ operadora: :pessoa }])
 ```
 
-> Filtros/ranges e order de associação usam subqueries resolvidas por reflexão (veja a seção "Allowlist de associações" abaixo). A relation principal permanece única e o count é `COUNT(DISTINCT pk)`.
+> Filtros/ranges, order e busca de associação usam subqueries resolvidas por reflexão (veja a seção "Allowlist de associações" abaixo). A relation base permanece única e sem joins, então o count é um `COUNT(*)` simples.
 
 ## Allowlist de associações (`allowed_paths`)
 
@@ -185,7 +185,7 @@ class Person < ApplicationRecord
   searchable_columns :name, company: [:name, :cnpj]
 end
 
-Person.search("globex")                            # encontra company.name via left_join
+Person.search("globex")                            # encontra company.name via subquery no pk
 Person.search("kayky", distinct: false)            # desativa o DISTINCT implícito
 ```
 
@@ -235,7 +235,7 @@ Observações:
 
 ```
 fase 1  construir a relation      subqueries (pk IN … / ORDER BY (SELECT …)) + search + filters + order   (sem dados em memória)
-fase 2  count                     SELECT COUNT(DISTINCT "<pk>") ... (subquery, indexada por pk)
+fase 2  count                     SELECT COUNT(*) ... (relation base sem joins)
         paginate                  offset / limit
         preload                   SELECT ... WHERE id IN (subset)        (2ª query leve)
 ```
@@ -257,7 +257,7 @@ lib/huginn/datatable/filter_normalizer.rb  normalização funcional de params
 lib/huginn/datatable/paginator.rb  count enxuto, paginação, preload isolado
 lib/huginn/searchable.rb            Huginn::Searchable (agregador)
 lib/huginn/searchable/searchable.rb o Concern do search + DSL
-lib/huginn/searchable/query.rb      construtor de busca tolerante (joins + OR)
+lib/huginn/searchable/query.rb      construtor de busca tolerante (subqueries + OR)
 lib/huginn/searchable/fuzzy.rb      predicados pg_trgm / unaccent / simple
 lib/generators/...                  gerador `huginn:trigram_indexes` (migrations de índices GIN)
 ```

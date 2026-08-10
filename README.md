@@ -18,7 +18,7 @@ Huginn is a lightweight query layer for Rails that turns a raw datatable request
 ## Highlights
 
 - **Two-phase execution** — association filters/orders/range become reflection-secured subqueries, then a lean count and `preload` **only on the paginated subset**.
-- **Lean counts** — `COUNT(DISTINCT pk)` through a stripped relation; no JOIN materialization.
+- **Lean counts** — the base relation never joins (`COUNT(*)` over a stripped relation); association matches run as pk subqueries instead.
 - **SQL injection safe ordering/filtering** — every column reference is resolved through Arel reflection, never string-interpolated.
 - **Accent/typo tolerant search** — `pg_trgm` similarity (`%` operator) OR `unaccent+ILIKE`, with a configurable fallback chain; uses a `gin_trgm_ops` GIN index when one exists.
 - **Rails conventions** — works with `ActionController::Parameters`, Railtie auto-includes both concerns (toggleable), zero boilerplate.
@@ -129,7 +129,7 @@ Any `column` **or** `association.column` reference is validated and mapped to it
 Plano.datatable({ orders: [{ "operadora.pessoa.nome" => "asc" }] }, allowed_paths: [{ operadora: :pessoa }])
 ```
 
-> Association filters/range and ordering use reflection-resolved subqueries (see the "allowlist of associations" section below). The main relation stays singular and the count is `COUNT(DISTINCT pk)`.
+> Association filters/range, ordering and search use reflection-resolved subqueries (see the "allowlist of associations" section below). The base relation stays singular and join-free, so the count is a plain `COUNT(*)`.
 
 ## Association allowlist (`allowed_paths`)
 
@@ -185,7 +185,7 @@ class Person < ApplicationRecord
   searchable_columns :name, company: [:name, :cnpj]
 end
 
-Person.search("globex")                            # matches company.name via a left_join
+Person.search("globex")                            # matches company.name via a pk subquery
 Person.search("kayky", distinct: false)            # disable the implicit DISTINCT
 ```
 
@@ -235,7 +235,7 @@ Notes:
 
 ```
 phase 1  build the relation          subqueries (pk IN … / ORDER BY (SELECT …)) + search + filters + order   (no data in memory)
-phase 2  count                       SELECT COUNT(DISTINCT "<pk column>") ... (subquery, pk-indexed)
+phase 2  count                       SELECT COUNT(*) ... (base relation is join-free)
           paginate                   offset / limit
           preload                    SELECT ... WHERE id IN (subset)        (2nd lightweight query)
 ```
@@ -257,7 +257,7 @@ lib/huginn/datatable/filter_normalizer.rb  functional param normalization
 lib/huginn/datatable/paginator.rb    lean count, pagination, isolated preload
 lib/huginn/searchable.rb            Huginn::Searchable (aggregator)
 lib/huginn/searchable/searchable.rb the search Concern + DSL
-lib/huginn/searchable/query.rb      tolerant search builder (joins + OR)
+lib/huginn/searchable/query.rb      tolerant search builder (subqueries + OR)
 lib/huginn/searchable/fuzzy.rb      pg_trgm / unaccent / simple predicates
 lib/generators/...                  `huginn:trigram_indexes` (GIN index migrations)
 ```
