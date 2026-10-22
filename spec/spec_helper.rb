@@ -52,6 +52,14 @@ RSpec.configure do |config|
       # tables already exist; continue
     end
 
+    require File.expand_path("dummy/db/migrate/20240101000003_add_huginn_array_test_columns.rb", __dir__)
+    begin
+      AddHuginnArrayTestColumns.migrate(:up)
+    rescue ActiveRecord::StatementInvalid
+      # columns already exist; continue
+    end
+    ActiveRecord::Base.descendants.each(&:reset_column_information)
+
     # Backing for the :full_text strategy specs. CREATE OR REPLACE keeps this
     # idempotent with the trigram integration spec.
     ActiveRecord::Base.connection.execute(<<~SQL)

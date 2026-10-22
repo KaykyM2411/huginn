@@ -134,6 +134,28 @@ Parâmetros suportados:
 | `range_data` | `{ "created_at" => ["2024-01-01", "2024-12-31"] }` — ranges de datas ou numéricos |
 | `orders` | `[{ "pessoa.nome" => "desc" }]` — colunas simples ou de associação |
 
+### Colunas array (PostgreSQL)
+
+Os `filters` também funcionam em colunas array (`uuid[]`, `text[]`, `string[]`...) — próprias, com alias ou de associação — com o mesmo payload:
+
+```ruby
+Person.datatable({ filters: { tag_ids: id } })                          # contém id          (tag_ids @> ARRAY[id])
+Person.datatable({ filters: [{ tag_ids: a }, { tag_ids: b }] })          # contém a OU b      (tag_ids && ARRAY[a, b])
+Person.datatable({ filters: { tag_ids: "null" } })                       # array vazio
+```
+
+Vários valores casam com **qualquer** um por padrão (como o `IN`). Para exigir **todos**:
+
+```ruby
+class Person < ApplicationRecord
+  huginn_array_match :tag_ids, :all
+  # ou, com alias:
+  huginn_attributes tags: { column: "people.tag_ids", array: :all }
+end
+```
+
+Os valores são convertidos pelo tipo do elemento (um UUID inválido é descartado, nunca vai ao banco) e o literal do array é montado só com valores escapados. Colunas array ficam fora das colunas padrão do `search`.
+
 ### Ordenação/filtro com associação
 
 Qualquer referência `column` **ou** `associacao.column` é validada e mapeada para a tabela refletida real:

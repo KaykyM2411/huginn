@@ -51,7 +51,8 @@ module Huginn
 
       def default_searchable_columns
         columns_hash.each_with_object([]) do |(name, column), acc|
-          acc << name if %i[string text].include?(column.type)
+          # Array columns (string[]/text[]) are not searchable text: unaccent/ILIKE need a scalar.
+          acc << name if %i[string text].include?(column.type) && !column.try(:array)
         end
       end
     end

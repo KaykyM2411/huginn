@@ -7,6 +7,7 @@ module Huginn
     included do
       class_attribute :huginn_attribute_mapping, default: nil
       class_attribute :huginn_strict_mapping, default: false
+      class_attribute :huginn_array_modes, default: {}
     end
 
     class_methods do
@@ -60,14 +61,48 @@ module Huginn
       # are rejected — API callers can only filter/order by the aliases.
       # Without a mapping the model falls back to plain/reflected columns.
       # Accepts a positional Hash or keyword arguments.
+      #
+      # An alias over a PostgreSQL array column may set how several filter
+      # values match (see `huginn_array_match`):
+      #
+      #   huginn_attributes tags: { column: "people.tags", array: :all }
       def huginn_attributes(mapping = nil, strict: true, **aliases)
         merged = (mapping || {}).merge(aliases)
-        self.huginn_attribute_mapping = merged.map { |key, value| [key.to_s, value.to_s] }.to_h
+        modes = {}
+        self.huginn_attribute_mapping = merged.to_h do |key, value|
+          if value.is_a?(Hash)
+            options = value.transform_keys(&:to_sym)
+            modes[key.to_s] = normalized_array_mode(options[:array]) if options.key?(:array)
+            [key.to_s, options.fetch(:column).to_s]
+          else
+            [key.to_s, value.to_s]
+          end
+        end
+        self.huginn_array_modes = huginn_array_modes.merge(modes)
         self.huginn_strict_mapping = strict
         huginn_attribute_mapping
       end
 
+      # How several values filter a PostgreSQL array column:
+      #
+      #   :any (default)  row contains at least one of the values (`&&`),
+      #                   the same semantics as `IN` on a plain column
+      #   :all            row contains every value (`@>`)
+      #
+      #   huginn_array_match :tag_ids, :all
+      def huginn_array_match(*fields, mode)
+        mode = normalized_array_mode(mode)
+        self.huginn_array_modes = huginn_array_modes.merge(fields.flatten.to_h { |field| [field.to_s, mode] })
+      end
+
       private
+
+      def normalized_array_mode(mode)
+        mode = mode.to_s.to_sym
+        raise ArgumentError, "array mode must be :any or :all, got #{mode.inspect}" unless %i[any all].include?(mode)
+
+        mode
+      end
 
       def apply_datatable_search(relation, value)
         return relation if value.blank? || !respond_to?(:search)
@@ -102,6 +137,7 @@ module Huginn
       def apply_plain_filter(relation, validator, values)
         attr = validator.arel_attribute
         return relation if attr.nil?
+        return relation.where(array_predicate(attr, validator, values)) if validator.array?
 
         if values.include?("null")
           apply_nullable_predicate(relation, attr, values)
@@ -119,7 +155,9 @@ module Huginn
         return relation unless subquery
 
         attr   = validator.arel_attribute
-        target = if values.include?("null")
+        target = if validator.array?
+                   subquery.where(array_predicate(attr, validator, values))
+                 elsif values.include?("null")
                    apply_nullable_predicate(subquery, attr, values)
                  elsif values.size == 1
                    subquery.where(attr.eq(values.first))
@@ -205,6 +243,35 @@ module Huginn
         value.to_f if value.present?
       rescue ArgumentError, TypeError
         nil
+      end
+
+      # PostgreSQL array columns: one value means "contains it" (`@>`); several
+      # values follow the field's array mode — :any (`&&`, like IN) or :all
+      # (`@>`). "null" matches an empty (or NULL) array. Values are cast by the
+      # element type, so invalid ones are dropped before reaching SQL, and the
+      # literal is built from quoted values only.
+      def array_predicate(attr, validator, values)
+        wants_empty = values.include?("null")
+        cast = values.reject { |value| value == "null" }.filter_map { |value| validator.cast_array_element(value) }.uniq
+        predicates = []
+        predicates << empty_array_predicate(attr) if wants_empty
+        unless cast.empty?
+          operator = cast.size == 1 || validator.array_mode == :all ? "@>" : "&&"
+          predicates << Arel::Nodes::InfixOperation.new(operator, attr, array_literal(cast, validator.array_element_sql_type))
+        end
+        return Arel::Nodes::SqlLiteral.new("1=0") if predicates.empty?
+
+        predicates.reduce { |left, right| Arel::Nodes::Grouping.new(left.or(right)) }
+      end
+
+      def array_literal(values, sql_type)
+        quoted = values.map { |value| connection.quote(value) }.join(", ")
+        Arel::Nodes::SqlLiteral.new("ARRAY[#{quoted}]::#{sql_type}[]")
+      end
+
+      def empty_array_predicate(attr)
+        cardinality = Arel::Nodes::NamedFunction.new("cardinality", [attr])
+        Arel::Nodes::NamedFunction.new("COALESCE", [cardinality, Arel::Nodes.build_quoted(0)]).eq(0)
       end
 
       def apply_nullable_predicate(relation, attr, values)

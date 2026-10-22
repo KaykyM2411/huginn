@@ -24,6 +24,7 @@ module Huginn
 
       def initialize(model, field)
         @model = model
+        @public_name = field.to_s
         @strict_denied = false
         @field = resolve_alias(field)
         @field = @field.split(".").drop(1).join(".") if own_table_prefix?(@field)
@@ -74,6 +75,35 @@ module Huginn
         klass.columns_hash[column].type
       end
 
+      # True for PostgreSQL array columns (e.g. `uuid[]`, `text[]`).
+      def array?
+        definition = column_definition
+        !!(definition.respond_to?(:array?) ? definition.array? : definition&.try(:array))
+      end
+
+      # SQL type of the array elements ("uuid", "character varying"...),
+      # used to cast the filter literal.
+      def array_element_sql_type
+        column_definition.sql_type.delete_suffix("[]")
+      end
+
+      # Casts a filter value with the array element type; nil when invalid.
+      def cast_array_element(value)
+        type = target_klass.type_for_attribute(column)
+        element = type.respond_to?(:subtype) ? type.subtype : type
+        element.serialize(element.cast(value))
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      # :any or :all, declared with huginn_attributes(array:) or
+      # huginn_array_match (by public alias or by column name).
+      def array_mode
+        modes = target_klass.respond_to?(:huginn_array_modes) ? target_klass.huginn_array_modes : {}
+        own = model.respond_to?(:huginn_array_modes) ? model.huginn_array_modes : {}
+        own[@public_name] || own[@field] || modes[column] || :any
+      end
+
       # The AssociationPath for scoped fields (builds filter/order
       # subqueries), or nil for plain columns.
       def association_path
@@ -109,6 +139,16 @@ module Huginn
       def own_table_prefix?(field)
         segments = field.split(".")
         segments.size >= 2 && segments.first == model.table_name
+      end
+
+      def target_klass
+        plain? ? model : association_path.target_klass
+      end
+
+      def column_definition
+        return nil unless valid?
+
+        target_klass.columns_hash[column]
       end
 
       def strict_denied?

@@ -2,6 +2,16 @@
 
 ### Unreleased
 
+#### 0.4.0
+
+- **PostgreSQL array columns in `filters`** (`uuid[]`, `text[]`, `string[]`...), for own columns, `huginn_attributes` aliases and association-scoped columns. The payload is unchanged:
+  - one value → the row contains it (`col @> ARRAY[v]`);
+  - several values → **any** of them (`col && ARRAY[...]`, the same semantics as `IN`), or **all** of them (`col @> ARRAY[...]`) when the field is declared with `array: :all`;
+  - `"null"` → empty (or NULL) array, combinable with values.
+- New `huginn_array_match :field, :all` and `huginn_attributes alias: { column: "table.col", array: :all }` to choose the match mode (default `:any`).
+- Array filter values are cast by the element type (invalid values — e.g. a malformed UUID — are dropped, never reaching SQL) and the literal is built from quoted values only.
+- **Fix:** default searchable columns no longer include array columns (`string[]`/`text[]`), which broke `search` with `unaccent(character varying[]) does not exist`.
+
 #### 0.3.0
 
 - **New `:full_text` search strategy** — PostgreSQL full text search over lexemes (`public.f_tsvector(col) @@ plainto_tsquery('portuguese'::regconfig, 'term')`), so morphological variants match (e.g. "compras" finds "compra"). Blind to typos, unlike `:pg_trgm`. Uses a GIN tsvector index when the `fts_function` wrapper (IMMUTABLE, dictionary pinned) exists; degrades gracefully to unaccent+ILIKE otherwise.

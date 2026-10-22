@@ -134,6 +134,28 @@ Supported params:
 | `range_data` | `{ "created_at" => ["2024-01-01", "2024-12-31"] }` — date or numeric ranges |
 | `orders` | `[{ "pessoa.nome" => "desc" }]` — plain or association-scoped columns |
 
+### Array columns (PostgreSQL)
+
+`filters` also work on array columns (`uuid[]`, `text[]`, `string[]`...) — own, aliased or association-scoped — with the same payload:
+
+```ruby
+Person.datatable({ filters: { tag_ids: id } })                          # contains id        (tag_ids @> ARRAY[id])
+Person.datatable({ filters: [{ tag_ids: a }, { tag_ids: b }] })          # contains a OR b    (tag_ids && ARRAY[a, b])
+Person.datatable({ filters: { tag_ids: "null" } })                       # empty array
+```
+
+Several values match **any** of them by default (like `IN`). To require **all** of them:
+
+```ruby
+class Person < ApplicationRecord
+  huginn_array_match :tag_ids, :all
+  # or, with an alias:
+  huginn_attributes tags: { column: "people.tag_ids", array: :all }
+end
+```
+
+Values are cast by the element type (an invalid UUID is dropped, never sent to the database) and the array literal is built from quoted values only. Array columns are left out of the default `search` columns.
+
 ### Scoped ordering / filtering
 
 Any `column` **or** `association.column` reference is validated and mapped to its real reflected table:
