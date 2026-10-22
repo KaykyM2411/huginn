@@ -10,6 +10,7 @@
   - `"null"` → empty (or NULL) array, combinable with values.
 - New `huginn_array_match :field, :all` and `huginn_attributes alias: { column: "table.col", array: :all }` to choose the match mode (default `:any`).
 - Array filter values are cast by the element type (invalid values — e.g. a malformed UUID — are dropped, never reaching SQL) and the literal is built from quoted values only.
+- `filters` accept a Hash whose value is an Array (`filters[col][]=a&filters[col][]=b` → `{ "col" => [a, b] }`) as several values (IN / array match), the same as repeating the key. Before, the Array was taken as one value and never matched.
 - **Fix:** default searchable columns no longer include array columns (`string[]`/`text[]`), which broke `search` with `unaccent(character varying[]) does not exist`.
 
 #### 0.3.0

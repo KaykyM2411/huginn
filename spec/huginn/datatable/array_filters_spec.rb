@@ -33,6 +33,11 @@ RSpec.describe "(integration) Huginn::Datatable array filters" do
     expect(nomes(filters: [{ "tags" => "a" }, { "tags" => "b" }])).to eq(["Ambos", "Só A", "Só B"])
   end
 
+  it "accepts several values as a Hash of Array (filters[col][]=a&filters[col][]=b)" do
+    expect(nomes(filters: { "tags" => %w[a b] })).to eq(["Ambos", "Só A", "Só B"])
+    expect(Person.datatable({ filters: { "name" => ["Só A", "Só B"] } })[:total_count]).to eq(2)
+  end
+
   it "matches all values with huginn_array_match :all" do
     Person.huginn_array_match :tags, :all
     expect(nomes(filters: [{ "tags" => "a" }, { "tags" => "b" }])).to eq(["Ambos"])

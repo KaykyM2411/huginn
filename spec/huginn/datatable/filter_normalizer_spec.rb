@@ -12,6 +12,15 @@ RSpec.describe Huginn::Datatable::FilterNormalizer do
     end
   end
 
+  context "with a Hash whose value is an Array" do
+    it "treats the values as an IN bucket (filters[col][]=a&filters[col][]=b)" do
+      expect(normalizer.call({ "status" => %w[active inactive] }))
+        .to eq("status" => %w[active inactive])
+      raw = ActionController::Parameters.new("status" => %w[active inactive])
+      expect(normalizer.call(raw)).to eq("status" => %w[active inactive])
+    end
+  end
+
   context "with ActionController::Parameters" do
     it "converts through to_unsafe_h" do
       raw = ActionController::Parameters.new("status" => "active")

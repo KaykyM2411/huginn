@@ -130,7 +130,7 @@ Supported params:
 |---|---|
 | `page`, `per_page` | Pagination (clamped to `pagy_max_items`) |
 | `search` | Delegates to `Huginn::Searchable.search` |
-| `filters` | Hash / Array of hashes / pairs -> exact or `IN` conditions (`"col" => "null"` → `IS NULL`) |
+| `filters` | Hash (`{ "col" => v }` or `{ "col" => [a, b] }`) / Array of hashes / pairs -> exact or `IN` conditions (`"col" => "null"` → `IS NULL`) |
 | `range_data` | `{ "created_at" => ["2024-01-01", "2024-12-31"] }` — date or numeric ranges |
 | `orders` | `[{ "pessoa.nome" => "desc" }]` — plain or association-scoped columns |
 

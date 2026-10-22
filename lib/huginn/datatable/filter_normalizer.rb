@@ -6,8 +6,9 @@ module Huginn
     # (ActionController::Parameters, Hash, Array of hashes, [key, value]
     # pairs, ...) into a single Hash of { column => Array(values) }.
     #
-    # Values are accumulated in arrays so that repeated keys produce an
-    # IN condition when applied as a datatable filter. Invalid payload
+    # Values are accumulated in arrays so that repeated keys — or a key with
+    # an Array of values — produce an IN condition when applied as a
+    # datatable filter. Invalid payload
     # shapes are simply ignored, and keys are normalized to strings.
     class FilterNormalizer
       def self.call(raw)
@@ -20,7 +21,9 @@ module Huginn
 
       def call
         each_pair(@raw).each_with_object({}) do |(key, value), acc|
-          (acc[key.to_s] ||= []) << value
+          # { "col" => [a, b] } (e.g. filters[col][]=a&filters[col][]=b) is the
+          # same as repeating the key: several values, IN / array match.
+          (acc[key.to_s] ||= []).concat(value.is_a?(Array) ? value : [value])
         end
       end
 
