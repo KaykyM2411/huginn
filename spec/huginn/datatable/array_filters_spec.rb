@@ -22,7 +22,7 @@ RSpec.describe "(integration) Huginn::Datatable array filters" do
   end
 
   def nomes(params = nil, allowed_paths: [], **filtros)
-    Person.datatable(params || filtros, allowed_paths:)[:data].map(&:name).sort
+    Person.datatable(params || filtros, allowed_paths: allowed_paths)[:data].map(&:name).sort
   end
 
   it "matches rows that contain a single value" do
