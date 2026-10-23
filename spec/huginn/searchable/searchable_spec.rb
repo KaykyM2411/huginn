@@ -65,10 +65,17 @@ RSpec.describe "(integration) Huginn::Searchable" do
         SqlSpy.stop
 
         query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
-        expect(query).to include('"people"."company_id" IN (SELECT DISTINCT "companies"."id"')
+        expect(query).to include('"people"."company_id" = ANY(ARRAY(SELECT DISTINCT "companies"."id"')
         expect(query).to match(/FROM "companies" WHERE/m)
         expect(query).not_to include('INNER JOIN "companies"')
         expect(query).not_to include("LEFT JOIN")
+      end
+
+      it "plans the association subquery as an InitPlan, so the OR can still use indexes" do
+        plan = Person.search("globex").explain.inspect
+
+        expect(plan).to include("InitPlan")
+        expect(plan).not_to include("SubPlan")
       end
 
       it "issues one pk subquery per distinct association chain, combined with OR" do
@@ -81,7 +88,7 @@ RSpec.describe "(integration) Huginn::Searchable" do
 
         query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
         expect(result.map(&:name)).to contain_exactly("Ana Souza", "Kayky Marcelo")
-        expect(query.scan(/"people"\."company_id" IN \(SELECT DISTINCT/).size).to eq(2)
+        expect(query.scan(/"people"\."company_id" = ANY\(ARRAY\(SELECT DISTINCT/).size).to eq(2)
         expect(query).to include('INNER JOIN "products"')
         expect(query).not_to include('INNER JOIN "companies"')
         expect(query).not_to include("LEFT JOIN")
@@ -109,7 +116,7 @@ RSpec.describe "(integration) Huginn::Searchable" do
         SqlSpy.stop
 
         query = SqlSpy.queries.find { |sql| sql.include?('"companies"') && sql.include?("WHERE") }
-        expect(query).to include('"companies"."id" IN (SELECT DISTINCT "people"."company_id"')
+        expect(query).to include('"companies"."id" = ANY(ARRAY(SELECT DISTINCT "people"."company_id"')
         expect(query).to match(/FROM "people" WHERE/m)
         expect(query).not_to include('INNER JOIN "people"')
         expect(query).not_to include("LEFT JOIN")
@@ -141,7 +148,7 @@ RSpec.describe "(integration) Huginn::Searchable" do
         SqlSpy.stop
 
         query = SqlSpy.queries.find { |sql| sql.include?('"people"') && sql.include?("WHERE") }
-        expect(query).to include('"people"."company_id" IN (SELECT DISTINCT "companies"."id"')
+        expect(query).to include('"people"."company_id" = ANY(ARRAY(SELECT DISTINCT "companies"."id"')
         expect(query).to include(
           'public.f_tsvector("companies"."name") @@ plainto_tsquery(\'portuguese\'::regconfig, \'acme\')'
         )

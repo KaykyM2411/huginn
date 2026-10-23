@@ -108,6 +108,7 @@ module Huginn
       #   belongs_to -> base[fk]  IN (SELECT DISTINCT t1[join_pk]  FROM t1 ...)
       #   has_many   -> base[pk]   IN (SELECT DISTINCT t1[fk]      FROM t1 ...)
       #
+      # On PostgreSQL the membership is written as `= ANY(ARRAY(...))` (see #member_of).
       # Walks the chain from the first target table outwards so the base table
       # is never scanned inside the subquery.
       def anchored_predicate(path, attrs)
@@ -139,7 +140,20 @@ module Huginn
         manager.project(projection)
         manager.distinct
 
-        outer.in(manager)
+        member_of(outer, manager)
+      end
+
+      # `column IN (subquery)` becomes a hashed SubPlan on PostgreSQL, which can't
+      # take part in a BitmapOr: one association arm then forces the whole search
+      # (every column OR'ed together) into a filter over every row of the table,
+      # ignoring the GIN indexes. `column = ANY(ARRAY(subquery))` is evaluated
+      # once as an InitPlan and the column's index is used, so the OR stays a
+      # BitmapOr. Other adapters keep the plain IN.
+      def member_of(column, subquery)
+        return column.in(subquery) unless postgresql?
+
+        array = Arel::Nodes::NamedFunction.new("ARRAY", [subquery.ast])
+        Arel::Nodes::Equality.new(column, Arel::Nodes::NamedFunction.new("ANY", [array]))
       end
 
       # Whether the first hop goes through a join model; the FK anchoring is
@@ -161,7 +175,7 @@ module Huginn
                         .distinct
 
         predicate = fuzzy_predicates(attrs).reduce(&:or)
-        arel_table[primary_key].in(base.joins(spec).where(predicate).arel)
+        member_of(arel_table[primary_key], base.joins(spec).where(predicate).arel)
       end
 
       def fuzzy_predicate(attr)
