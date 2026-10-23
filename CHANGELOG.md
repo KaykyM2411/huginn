@@ -2,6 +2,10 @@
 
 ### Unreleased
 
+#### 0.4.2
+
+- **Performance (PostgreSQL):** association matches in `search` are written as `fk = ANY(ARRAY(SELECT DISTINCT ...))` instead of `fk IN (SELECT DISTINCT ...)`. The `IN` form was planned as a hashed SubPlan, which can't take part in a BitmapOr: a single association column (e.g. `searchable_columns :title, company: [:name]`) made the whole OR fall back to filtering every row, ignoring the GIN trigram/tsvector indexes. `ANY(ARRAY(...))` runs once as an InitPlan and keeps the index plan (measured on 20k-30k rows: ~500 ms → ~1 ms for a selective term). Results are unchanged; other adapters keep `IN`.
+
 #### 0.4.1
 
 - **Fix:** the specs no longer use the Ruby 3.1+ shorthand hash syntax (`f(allowed_paths:)`), so the suite loads again on Ruby 3.0 (the gem's minimum). No library code changed from 0.4.0.
