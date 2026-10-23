@@ -2,6 +2,10 @@
 
 ### Unreleased
 
+#### 0.4.1
+
+- **Fix:** the specs no longer use the Ruby 3.1+ shorthand hash syntax (`f(allowed_paths:)`), so the suite loads again on Ruby 3.0 (the gem's minimum). No library code changed from 0.4.0.
+
 #### 0.4.0
 
 - **PostgreSQL array columns in `filters`** (`uuid[]`, `text[]`, `string[]`...), for own columns, `huginn_attributes` aliases and association-scoped columns. The payload is unchanged:
