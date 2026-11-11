@@ -54,6 +54,16 @@ RSpec.describe "(integration) Huginn::Datatable" do
         expect(result[:total_count]).to eq(3)
       end
 
+      it "includes the whole last day on a datetime column" do
+        dia = Date.new(2024, 3, 10)
+        dentro = Person.create!(company: @acme, name: "Fim do dia", email: "fim@acme.com", created_at: dia.end_of_day - 1)
+        Person.create!(company: @acme, name: "Dia seguinte", email: "seguinte@acme.com", created_at: (dia + 1).beginning_of_day + 1)
+        Person.create!(company: @acme, name: "Dia anterior", email: "anterior@acme.com", created_at: dia.beginning_of_day - 1)
+
+        result = Person.datatable({ range_data: { "created_at" => [dia.iso8601, dia.iso8601] } })
+        expect(result[:data].to_a).to eq([dentro])
+      end
+
       it "filters a numeric range" do
         result = Person.datatable({ range_data: { "age" => ["20", "29"] } })
         expect(result[:total_count]).to eq(1)
