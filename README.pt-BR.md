@@ -131,7 +131,7 @@ Parâmetros suportados:
 | `page`, `per_page` | Paginação (limitada a `pagy_max_items`) |
 | `search` | Delega para `Huginn::Searchable.search` |
 | `filters` | Hash (`{ "col" => v }` ou `{ "col" => [a, b] }`) / Array de hashes / pares -> condições exatas ou `IN` (`"col" => "null"` → `IS NULL`) |
-| `range_data` | `{ "created_at" => ["2024-01-01", "2024-12-31"] }` — ranges de datas ou numéricos |
+| `range_data` | `{ "created_at" => ["2024-01-01", "2024-12-31"] }` — ranges de datas ou numéricos, com as duas pontas inclusivas (numa coluna datetime as datas valem pelo dia inteiro) |
 | `orders` | `[{ "pessoa.nome" => "desc" }]` — colunas simples ou de associação |
 
 ### Colunas array (PostgreSQL)

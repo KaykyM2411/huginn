@@ -221,6 +221,8 @@ module Huginn
           to   = parse_datatable_date(to)
           return relation if from.blank? && to.blank?
 
+          # Dates are compared as whole days: on a datetime column, "to" covers its last day.
+          from, to = from&.beginning_of_day, to&.end_of_day if type == :datetime
           relation.where(range_predicate(attr, from, to))
         end
       end

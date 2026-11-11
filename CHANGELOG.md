@@ -2,6 +2,10 @@
 
 ### Unreleased
 
+#### 0.5.0
+
+- **Fix (changes results):** `range_data` on a datetime column now covers whole days. The dates were compared as midnight, so the last day was left out and a single-day range (`["2024-03-10", "2024-03-10"]`, which Arel turns into `= '2024-03-10'`) only matched rows created exactly at 00:00:00. Now `from` is the start of its day and `to` the end of its day, in `Time.zone`. Date and numeric columns are unchanged. If a caller compensated by sending the day after as `to`, drop that adjustment when upgrading, or the range will include one extra day.
+
 #### 0.4.2
 
 - **Performance (PostgreSQL):** association matches in `search` are written as `fk = ANY(ARRAY(SELECT DISTINCT ...))` instead of `fk IN (SELECT DISTINCT ...)`. The `IN` form was planned as a hashed SubPlan, which can't take part in a BitmapOr: a single association column (e.g. `searchable_columns :title, company: [:name]`) made the whole OR fall back to filtering every row, ignoring the GIN trigram/tsvector indexes. `ANY(ARRAY(...))` runs once as an InitPlan and keeps the index plan (measured on 20k-30k rows: ~500 ms → ~1 ms for a selective term). Results are unchanged; other adapters keep `IN`.
